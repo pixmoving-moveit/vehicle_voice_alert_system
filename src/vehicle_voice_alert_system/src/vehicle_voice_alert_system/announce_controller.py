@@ -1,7 +1,9 @@
 # !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # This Python file uses the following encoding: utf-8
-
+import simpleaudio as sa
+import time
+import alsaaudio
 import os
 from os import path
 from dataclasses import dataclass
@@ -21,20 +23,30 @@ from autoware_adapi_v1_msgs.msg import (
 from std_msgs.msg import Float32
 from tier4_hmi_msgs.srv import SetVolume
 from tier4_external_api_msgs.msg import ResponseStatus
+from autoware_auto_system_msgs.msg import AutowareState
 
 
 # The higher the value, the higher the priority
 PRIORITY_DICT = {
+    "ch_please_fasten_your_seat_belts": 3,
+    "ch_vehicle_approaching_station": 4, # going_to_arrive
+    "ch_vehicle_has_arrived": 4,# ch_vehicle_has_arrived
     "emergency": 4,
     "departure": 4,
+    "ch_robobuszzqdndlcjjks":4, # departure
     "stop": 4,
     "restart_engage": 4,
     "going_to_arrive": 4,
     "obstacle_stop": 3,
     "in_emergency": 3,
     "temporary_stop": 2,
+    "ch_open_door": 2,
+    "ch_close_door": 2,
     "turning_left": 1,
     "turning_right": 1,
+    "ch_left_turn": 1,
+    "ch_right_turn": 1,
+    
 }
 
 # 参照元: https://github.com/autowarefoundation/autoware_adapi_msgs/blob/main/autoware_adapi_v1_msgs/planning/msg/PlanningBehavior.msg
@@ -104,17 +116,40 @@ class AnnounceControllerProperty:
         self._stop_announce_executed = False
         self._announce_engage = False
         self._in_slow_stop_state = False
+        
+        # ------- pixmoving add -------#
+        self._previous_door_state = False # 车门标志
+        self._announcement_done = False
+        self.current_door_state = None     
+        
+        self.voice_alarm_flag = False
+        self.voice_turn_signal = False
+        
+        self.voice_current_station = ""
+        self.voice_next_station = ""
+        self.voice_estimate_time = int
+        self.voice_target_distance = int
+        self.bgm_volume = int
+        
+        # ------- pixmoving end -------#
+
 
         self._package_path = (
             get_package_share_directory("vehicle_voice_alert_system") + "/resource/sound"
         )
 
-        self._running_bgm_file = self.get_filepath("running_music")
-        self._node.create_timer(1.0, self.check_playing_callback)
+        # self._running_bgm_file = self.get_filepath("running_music")
+        # self._running_bgm_file = get_package_share_directory("vehicle_voice_alert_system") + "/resource/bgm"
+        self._running_bgm_file = self.get_filepath("bgm2")
+        self._node.create_timer(0.1, self.check_playing_callback)
         self._node.create_timer(0.5, self.turn_signal_callback)
+        self._node.create_timer(0.5, self.door_beeps_starting)
         self._node.create_timer(0.5, self.emergency_checker_callback)
         self._node.create_timer(0.5, self.stop_reason_checker_callback)
         self._node.create_timer(0.1, self.announce_engage_when_starting)
+        # self._node.create_timer(0.5, self.door_beeps_starting)
+        # self._node.create_timer(0.5, self.turn_signal_callback)
+
 
         self._pulse = Pulse()
         if os.path.isfile(CURRENT_VOLUME_PATH):
@@ -182,20 +217,43 @@ class AnnounceControllerProperty:
                 and self._autoware.information.autoware_control
             ):
                 if not self._announce_engage:
-                    self.send_announce("departure")
+                    # self.send_announce("departure")
+                    self.send_announce("ch_robobuszzqdndlcjjks")
+                    print("语音提示: 出发!")
+                    self._announce_engage = True
+                if (
+                    not self._autoware.information.alarm_flag
+                    and not self.voice_alarm_flag
+                ):
+                    self.send_announce("ch_please_fasten_your_seat_belts")
+                    print("语音提示: 请系好安全带!")
+                    self.voice_alarm_flag = True
+                if (
+                    self._autoware.information.autoware_state == AutowareState.DRIVING
+                    and not self._announce_engage
+                ):
+                    self.send_announce("ch_robobuszzqdndlcjjks")
+                    print("语音提示: 车辆自动驾驶中，请坐稳扶好。")
                     self._announce_engage = True
 
                 if not self._music_object or not self._music_object.is_playing():
                     sound = WaveObject.from_wave_file(self._running_bgm_file)
+                    self.set_bgm_volume(50)
                     self._music_object = sound.play()
+                    # self.play_bgm_audio_folder()
+
+                    
+
 
                 if (
-                    self._autoware.information.goal_distance
+                    self._autoware.information._target_distance
                     < self._parameter.announce_arriving_distance
                     and not self._announce_arriving
                 ):
                     # announce if the goal is with the distance
-                    self.send_announce("going_to_arrive")
+                    # self.send_announce("going_to_arrive")
+                    self.send_announce("ch_vehicle_approaching_station")
+                    print("语音提示: 即将到达")
                     self._announce_arriving = True
             elif (
                 self._parameter.manual_driving_bgm
@@ -207,18 +265,26 @@ class AnnounceControllerProperty:
             ):
                 if not self._music_object or not self._music_object.is_playing():
                     sound = WaveObject.from_wave_file(self._running_bgm_file)
+                    self.set_bgm_volume(50)
                     self._music_object = sound.play()
+                    # self.play_bgm_audio_folder()
+    
+
+                    
             else:
                 if self._music_object and self._music_object.is_playing():
                     self._music_object.stop()
 
             if (
-                self._autoware.information.route_state == RouteState.ARRIVED
+                self._autoware.information.route_state == RouteState.ARRIVED # 已到达
                 and self._autoware.information.autoware_control
+                and self._autoware.information.operation_mode == OperationModeState.STOP #  add
                 and self._in_driving_state
             ):
                 # Skip announce if is in manual driving
-                self.send_announce("stop")
+                # self.send_announce("stop")
+                self.send_announce("ch_vehicle_has_arrived")
+                print("语音提示: 车辆已到站")
                 self._announce_arriving = False
 
             if self._autoware.information.route_state == RouteState.ARRIVED:
@@ -256,9 +322,9 @@ class AnnounceControllerProperty:
                 elif self._node.get_clock().now() - self._engage_trigger_time > Duration(
                     seconds=self._mute_parameter.accept_start
                 ):
-                    self.send_announce("departure")
+                    self.send_announce("ch_robobuszzqdndlcjjks")
+                    print("语音提示: 车辆启程")
                     self._engage_trigger_time = self._node.get_clock().now()
-
                 self.reset_all_timeout()
                 if self._autoware.information.motion_state == MotionState.STARTING:
                     self._service_interface.accept_start()
@@ -302,6 +368,7 @@ class AnnounceControllerProperty:
         if filepath:
             sound = WaveObject.from_wave_file(filepath)
             self._wav_object = sound.play()
+
         else:
             self._node.get_logger().info(
                 "Didn't found the voice in the primary voice folder, and skip default voice is enabled"
@@ -315,7 +382,7 @@ class AnnounceControllerProperty:
         priority = PRIORITY_DICT.get(message, 0)
         previous_priority = PRIORITY_DICT.get(self._current_announce, 0)
 
-        if priority > previous_priority:
+        if priority >= previous_priority:
             if self._wav_object:
                 self._wav_object.stop()
             self.play_sound(message)
@@ -352,11 +419,20 @@ class AnnounceControllerProperty:
         elif self._in_emergency_state or self._in_stop_status:
             return
 
-        if self._autoware.information.turn_signal == 1:
-            self.send_announce("turning_left")
+        # if (self._autoware.information.turn_signal == 2 and not self.voice_turn_signal):
         if self._autoware.information.turn_signal == 2:
-            self.send_announce("turning_right")
 
+            # self.send_announce("turning_left")
+            self.send_announce("ch_left_turn")
+            print("语音提示: 左转弯")
+            # self.voice_turn_signal = True
+        # if (self._autoware.information.turn_signal == 3 and not self.voice_turn_signal):
+        if self._autoware.information.turn_signal == 3:
+
+            # self.send_announce("turning_right")
+            self.send_announce("ch_right_turn")
+            print("语音提示: 右转弯")
+            # self.voice_turn_signal = True
         self.set_timeout("turn_signal")
 
     # 停止する予定を取得
@@ -364,7 +440,7 @@ class AnnounceControllerProperty:
         if not self.check_in_autonomous():
             self._node.get_logger().warning(
                 "The vehicle is not in driving state, do not announce",
-                throttle_duration_sec=10,
+                throttle_duration_sec=30,
             )
             return
 
@@ -386,7 +462,8 @@ class AnnounceControllerProperty:
             if self.in_interval("stop_reason"):
                 return
 
-            self.announce_stop_reason("temporary_stop")
+            # self.announce_stop_reason("temporary_stop")
+            self.announce_stop_reason("ch_temporary_stop")
             self._stop_announce_executed = True
         else:
             self._in_stop_status = False
@@ -410,3 +487,43 @@ class AnnounceControllerProperty:
         except Exception:
             response.status.code = ResponseStatus.ERROR
         return response
+           
+    def door_beeps_starting(self):
+        try:
+            self.current_door_state = self._autoware.information.vehicle_door
+            
+            if self.current_door_state != self._previous_door_state:
+                if not self._announcement_done:
+                    if self.current_door_state:
+                        self.send_announce("ch_close_door")
+                        print("语音提示: 车门已关闭")
+                    else:
+                        self.send_announce("ch_open_door")
+                        print("语音提示: 车门已打开")
+                    self._announcement_done = True
+                self._previous_door_state = self.current_door_state
+            else:
+                self._announcement_done = False
+        except Exception as e:
+            self._node.get_logger().error("Door status message not obtained: " + str(e))
+                    
+
+    def set_bgm_volume(self,volume):
+        mixer = alsaaudio.Mixer()
+        mixer.setvolume(volume)
+        
+        
+    def play_bgm_audio_folder(self):
+        audio_files = [f for f in os.listdir(self._running_bgm_file) if f.endswith('.wav')]
+
+        while True:
+            for audio_file in audio_files:
+                audio_path = os.path.join(self._running_bgm_file, audio_file)
+                sound = WaveObject.from_wave_file(audio_path)
+                self._music_object = sound.play()
+                
+                # 等待音频播放完成
+                # self._music_object.wait_done()
+                # 可以在此处添加延时，以控制每个音频之间的间隔
+                time.sleep(1)
+                
