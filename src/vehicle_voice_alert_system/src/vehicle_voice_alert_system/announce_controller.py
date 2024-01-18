@@ -400,15 +400,16 @@ class AnnounceControllerProperty:
         )
 
         if in_emergency and not self._in_emergency_state:
-            self.send_announce("emergency")
-        elif in_emergency and self._in_emergency_state:
-            if not self.in_interval("in_emergency"):
-                self.send_announce("in_emergency")
-                self.set_timeout("in_emergency")
-        elif in_slow_stop and self._in_slow_stop_state:
-            if not self.in_interval("in_emergency"):
-                self.send_announce("in_emergency")
-                self.set_timeout("in_emergency")
+        #     self.send_announce("emergency")
+        # elif in_emergency and self._in_emergency_state:
+        #     if not self.in_interval("in_emergency"):
+        #         self.send_announce("in_emergency")
+        #         self.set_timeout("in_emergency")
+        # elif in_slow_stop and self._in_slow_stop_state:
+        #     if not self.in_interval("in_emergency"):
+        #         self.send_announce("in_emergency")
+        #         self.set_timeout("in_emergency")
+            pass
 
         self._in_emergency_state = in_emergency
         self._in_slow_stop_state = in_slow_stop
