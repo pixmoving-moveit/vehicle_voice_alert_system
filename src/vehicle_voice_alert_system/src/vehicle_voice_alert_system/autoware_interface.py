@@ -29,14 +29,16 @@ from autoware_auto_system_msgs.msg import AutowareState
 from autoware_auto_vehicle_msgs.msg import (
     VelocityReport, # 速度信息反馈
     TurnIndicatorsReport, # 转向灯反馈
+    ControlModeReport, # 遥控切换模式反馈
 )
 
 @dataclass
 class AutowareInformation:
     stop_reasons: list
     velocity_factors: list
-    autoware_control: bool = False
-    operation_mode: int = 0
+    autoware_control: bool = False       
+    remote_control_mode: int = 0        # remote control mode report
+    operation_mode: int = 0             # autoware control mode report   
     mrm_behavior: int = 0
     route_state: int = 0
     turn_signal: int = 0
@@ -45,11 +47,11 @@ class AutowareInformation:
     localization_init_state: int = 0
     
     #------- pix add -------#
-    vehicle_door: bool = None       # 车门状态
+    vehicle_door: int = 0       # 车门状态
     alarm_triggered: bool = False   # 报警触发
     alert_message: str = ""
-    alarm_flag: bool = False
-    autoware_state: int = False
+    alarm_flag: bool = None
+    autoware_state: int = 0
     _current_station: str = ""  # 当前站
     _next_station: str = ""     # 下一站
     _estimate_time: float = 0.0 # 预计到站时间    
@@ -152,6 +154,14 @@ class AutowareInterface:
             sub_qos,
         )
         
+        node.create_subscription(
+            ControlModeReport,
+            "/vehicle/status/control_mode",
+            self.sub_remote_control_mode_callback, # 遥控模式反馈
+            sub_qos,
+        )
+        
+        
         self._autoware_connection_time = self._node.get_clock().now()
         self._node.create_timer(2, self.reset_timer)
 
@@ -161,12 +171,21 @@ class AutowareInterface:
             # self._node.get_logger().error("Autoware disconnected", throttle_duration_sec=10)
             pass
 
+    # autoware mode report
     def sub_operation_mode_callback(self, msg):
         try:
             self.information.autoware_control = msg.is_autoware_control_enabled
             self.information.operation_mode = msg.mode
         except Exception as e:
             self._node.get_logger().error("Unable to get the operation mode, ERROR: " + str(e))
+    
+    # remote mode report
+    def sub_remote_control_mode_callback(self,msg):
+        try:
+            self.information.remote_control_mode = msg.mode
+            # print("debug----remote mode is : ", self.information.remote_control_mode)
+        except Exception as e:
+            self._node.get_logger().error("Can't get new remote control mode feedback, ERROR: " + str(e))
 
     def sub_routing_state_callback(self, msg):
         try:
@@ -257,7 +276,8 @@ class AutowareInterface:
                 return
             # 遍历座椅状态并设置相应的标志
             for seat, (safe_belt, seat_status) in seat_belt_status.items():
-                self.information.alarm_flag = (safe_belt and seat_status) or (not safe_belt and not seat_status) or (not safe_belt and seat_status)
+                # self.information.alarm_flag = (safe_belt and seat_status) or (not safe_belt and not seat_status) or (not safe_belt and seat_status)
+                self.information.alarm_flag = (safe_belt and (not seat_status)) or ((not safe_belt) and seat_status) or (safe_belt and (not seat_status))
                 # 如果报警标志为False，触发报警并提示哪个位置没有系安全带
                 if  self.information.alarm_flag:
                     self.trigger_alarm(seat)
@@ -268,18 +288,27 @@ class AutowareInterface:
     def trigger_alarm(self, seat):
             # 在这里添加触发报警的操作，例如发出警报声或发送通知
             # 同时，根据座位名称构建提示信息并打印到控制台
-            self.information.alert_message = f"座位{seat[-1]}有人但未系安全带，触发报警！"
+            # self.information.alert_message = f"座位{seat[-1]}有人但未系安全带，触发报警！"
             print(self.information.alert_message)
             # 设置报警触发标志为True
-            # self.information.alarm_flag = True  # 座椅有人、安全带系上会自动为True
+            self.information.alarm_flag = True  # 座椅有人、安全带系上会自动为True
             self.information.alarm_triggered = True
 
     def sub_door_open_and_close_callback(self,msg):
         try:   
-            if(not msg.door_open_inplace):
-                self.information.vehicle_door = True      # 关门语音
-            elif(not msg.door_close_inplace):
-                self.information.vehicle_door = False     # 开门语音
+            if(msg.door_open_inplace and (not msg.door_close_inplace)):
+                # self.information.vehicle_door = msg.door_open_inplace
+                self.information.vehicle_door = 1
+                # print("开门状态")
+            elif((not msg.door_open_inplace) and msg.door_close_inplace):
+                # self.information.vehicle_door = msg.door_close_inplace
+                self.information.vehicle_door = 2
+                # print("关门状态")
+            else:
+                self.information.vehicle_door = 0
+
+            
+
         except Exception as e:
             self._node.get_logger().error("Unable to get the vehicle state, ERROR: " + str(e))  
 
