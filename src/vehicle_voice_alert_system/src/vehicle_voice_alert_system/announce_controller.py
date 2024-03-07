@@ -140,16 +140,16 @@ class AnnounceControllerProperty:
             get_package_share_directory("vehicle_voice_alert_system") + "/resource/sound"
         )
 
+
         # self._running_bgm_file = self.get_filepath("running_music")
-        # self._running_bgm_file = get_package_share_directory("vehicle_voice_alert_system") + "/resource/bgm"
-        self._running_bgm_file = self.get_filepath("bgm2")
-        self._node.create_timer(0.1, self.check_playing_callback)
-        self._node.create_timer(0.5, self.turn_signal_callback)
-        self._node.create_timer(0.5, self.door_beeps_starting)
-        self._node.create_timer(0.5, self.emergency_checker_callback)
-        self._node.create_timer(0.5, self.stop_reason_checker_callback)
-        self._node.create_timer(0.1, self.announce_engage_when_starting)
-        self._node.create_timer(10.0, self.seat_belt_tips_callback)
+        self._running_bgm_file = self.get_filepath("summer-adventures_50")  # 获取BGM音频
+        self._node.create_timer(0.1, self.check_playing_callback)           # 检测是否有音频在播放
+        self._node.create_timer(0.5, self.turn_signal_callback)             # 检测转向灯信号
+        self._node.create_timer(0.5, self.door_beeps_starting)              # 检测车门状态
+        self._node.create_timer(0.5, self.emergency_checker_callback)       # 检测是否处于紧急状态
+        self._node.create_timer(0.5, self.stop_reason_checker_callback)     # 检测停止原因
+        self._node.create_timer(0.1, self.announce_engage_when_starting)    # 启动时宣布启动
+        self._node.create_timer(10.0, self.seat_belt_tips_callback)         # 检测安全带状态
 
         
 
@@ -249,7 +249,7 @@ class AnnounceControllerProperty:
 
                 if not self._music_object or not self._music_object.is_playing():
                     sound = WaveObject.from_wave_file(self._running_bgm_file)
-                    self.set_bgm_volume(50)
+                    self.set_bgm_volume(30)
                     self._music_object = sound.play()
                     # self.play_bgm_audio_folder()
 
@@ -273,7 +273,7 @@ class AnnounceControllerProperty:
             ):
                 if not self._music_object or not self._music_object.is_playing():
                     sound = WaveObject.from_wave_file(self._running_bgm_file)
-                    self.set_bgm_volume(50)
+                    self.set_bgm_volume(30)
                     self._music_object = sound.play()
                     # self.play_bgm_audio_folder()
        
@@ -380,6 +380,7 @@ class AnnounceControllerProperty:
                 "Didn't found the voice in the primary voice folder, and skip default voice is enabled"
             )
 
+    # 发送声音提示
     def send_announce(self, message):
         if not self._autoware.information.autoware_control:
             self._node.get_logger().info("The vehicle is not control by autoware, skip announce")
@@ -394,6 +395,7 @@ class AnnounceControllerProperty:
             self.play_sound(message)
         self._current_announce = message
 
+    # 检查是否处于紧急状态
     def emergency_checker_callback(self):
         if self._autoware.information.operation_mode == OperationModeState.STOP:
             in_emergency = False
@@ -420,6 +422,7 @@ class AnnounceControllerProperty:
         self._in_emergency_state = in_emergency
         self._in_slow_stop_state = in_slow_stop
 
+    # 检查转向灯状态
     def turn_signal_callback(self):
         if self.in_interval("turn_signal"):
             return
@@ -430,13 +433,11 @@ class AnnounceControllerProperty:
             # self.send_announce("turning_left")    # jp
             self.send_announce("ch_left_turn")    # cn
             # self.send_announce("Car_Hazard_Light_20")
-            # print("语音提示: 左转弯")
             self.voice_turn_signal_l = True
         if (self._autoware.information.turn_signal == 3 and (not self.voice_turn_signal_r)):
             # self.send_announce("turning_right")   # jp
             self.send_announce("ch_right_turn")   # cn
             # self.send_announce("Car_Hazard_Light_20")
-            # print("语音提示: 右转弯")
             self.voice_turn_signal_r = True
             
         if (self._autoware.information.turn_signal == 0):
@@ -445,7 +446,7 @@ class AnnounceControllerProperty:
             
         self.set_timeout("turn_signal")
 
-    # 停止する予定を取得
+    # 停止原因检测
     def stop_reason_checker_callback(self):
         if not self.check_in_autonomous():
             self._node.get_logger().warning(
@@ -478,15 +479,18 @@ class AnnounceControllerProperty:
         else:
             self._in_stop_status = False
 
+
     def announce_stop_reason(self, file):
         self._in_stop_status = True
         self.send_announce(file)
         self.set_timeout("stop_reason")
 
+    # 发布音量回掉函数
     def publish_volume_callback(self):
         self._sink = self._pulse.get_sink_by_name(self._pulse.server_info().default_sink_name)
         self._get_volume_pub.publish(Float32(data=self._sink.volume.value_flat))
 
+    # 设置音量
     def set_volume(self, request, response):
         try:
             self._sink = self._pulse.get_sink_by_name(self._pulse.server_info().default_sink_name)
@@ -498,11 +502,11 @@ class AnnounceControllerProperty:
             response.status.code = ResponseStatus.ERROR
         return response
      
-
+    # 车门状态检测
     def door_beeps_starting(self):
         try:
             self.current_door_state = self._autoware.information.vehicle_door
-            print("车门状态： ", self.current_door_state)
+            # print("车门状态： ", self.current_door_state)
             if self.current_door_state == 1 and (not self.vehicle_open_door_labels):
                 self.send_announce("ch_open_door")
                 print("语音提示: 车门已打开")
@@ -521,6 +525,7 @@ class AnnounceControllerProperty:
             # 处理异常情况
             self._node.get_logger().error("未能获取车门状态消息: " + str(e))
 
+    # 座椅安全带提示
     def seat_belt_tips_callback(self):
         print(self._autoware.information.alarm_flag)
         if (    
@@ -534,11 +539,13 @@ class AnnounceControllerProperty:
         # self.voice_alarm_flag = False
 
     
+    # 设置背景音乐音量
     def set_bgm_volume(self,volume):
         mixer = alsaaudio.Mixer()
         mixer.setvolume(volume)
         
-        
+    
+    # 播放背景音乐文件夹中的音频文件
     def play_bgm_audio_folder(self):
         audio_files = [f for f in os.listdir(self._running_bgm_file) if f.endswith('.wav')]
 
